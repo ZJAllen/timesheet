@@ -2,7 +2,20 @@ from datetime import datetime, timedelta
 import calendar
 # import appex
 # import ui
-# import os
+import os
+
+
+class Filenames():
+    timesheet = 'timesheet.txt'
+    monday = 'monday.txt'
+    tuesday = 'tuesday.txt'
+    wednesday = 'wednesday.txt'
+    thursday = 'thursday.txt'
+    friday = 'friday.txt'
+
+
+# Create insance of Filenames class
+files = Filenames()
 
 
 class Clock():
@@ -11,6 +24,7 @@ class Clock():
     lunch = 0
     
     currentWeekday = ''
+    currentDate = ''
     monday = 0
     tuesday = 0
     wednesday = 0
@@ -36,43 +50,21 @@ class Clock():
 # Create instance of Clock class
 clock = Clock()
 
-# Define filename
-filename = 'timesheet.txt'
-
 
 ### Function Definitions ###
 
 
-# Get date of the end of the week, which corresponds to the dropdown
-# to select the current timesheet
-def getEndOfPayWeek(clockIn):
-    daysUntilSaturday = timedelta((12 - clockIn.weekday()) % 7)
-    nextSaturday = clockIn + daysUntilSaturday
+# Gets current total week time from all individual time sheets.
+def getTotalWeekTime(today_int):
+    for i in range(today_int, -1, -1):
+        weekday = calendar.day_name[i].lower()
+        
+        with open(f'{weekday}.txt', 'r') as f:
+            dayMinutes = int(f.readlines()[-1].strip().replace('Total: ',''))
 
-    weekEndingDate = f"{nextSaturday.month}/{nextSaturday.day}/{nextSaturday.year}"
+        clock.setDayMinutes(weekday, dayMinutes)
 
-    return weekEndingDate
-
-
-# Select current timecard from dropdown on home screen
-def selectTimeCard(browser, weekEndingDate):
-    timeCardWeekId = "WeekEnding1"
-    timeCardDropdown = Select(browser.find_element_by_id(timeCardWeekId))
-    timeCardDropdown.select_by_value(weekEndingDate)
-
-    return browser
-
-
-# Gets current total week time from timecard in browser.
-# TODO: add support to get time from database, to compare?
-def getTotalWeekTime(browser):
-    totalWeekHoursId = "repStandardTimecards_ctl00_StandardTime_repTimetotals_ctl01_StandardTimeRowTotal_TotalHoursControl_HoursTextBox"
-    totalWeekMinutesId = "repStandardTimecards_ctl00_StandardTime_repTimetotals_ctl01_StandardTimeRowTotal_TotalHoursControl_MinutesTextBox"
-
-    totalWeekHours = int(browser.find_element_by_id(totalWeekHoursId).get_attribute("value"))
-    totalWeekMinutes = int(browser.find_element_by_id(totalWeekMinutesId).get_attribute("value"))
-
-    return totalWeekHours, totalWeekMinutes
+    return clock.getWeekTotal()
 
 
 # Convert clock in and out times into hours and minutes worked
@@ -85,33 +77,6 @@ def parseWorkTime():
     workDurationMinutes = (workHours * 60) + workMinutes
 
     return workDurationMinutes, workHours, workMinutes
-
-
-# Determine if in OT (or if today's time puts us in OT),
-# and divide hours/minutes accordingly
-def allocateTime(browser, todayHours, todayMinutes):
-    # Call getTotalWeekTime function
-    totalWeekHours, totalWeekMinutes = getTotalWeekTime(browser)
-
-    totalTimeHours = ((todayHours * 60) + (totalWeekHours * 60) + todayMinutes + totalWeekMinutes) / 60
-
-    if totalTimeHours > 40:
-        overTimeTotalMinutes = round((totalTimeHours - 40) * 60)
-        overTimeMinutes = overTimeTotalMinutes % 60
-        overTimeHours = int((overTimeTotalMinutes - overTimeMinutes) / 60)
-
-        todayTotalMinutes = (todayHours * 60) + todayMinutes
-        todayRegularTimeMinutes = todayTotalMinutes - overTimeTotalMinutes
-        regularTimeMinutes = todayRegularTimeMinutes % 60
-        regularTimeHours = int((todayRegularTimeMinutes - regularTimeMinutes)/60)
-
-    else:
-        regularTimeHours = todayHours
-        regularTimeMinutes = todayMinutes
-        overTimeHours = 0
-        overTimeMinutes = 0
-
-    return regularTimeHours, regularTimeMinutes, overTimeHours, overTimeMinutes
 
 
 # Reset the clock in/out time at the end of the day.
@@ -128,81 +93,64 @@ def resetWeek():
     clock.thursday = 0
     clock.friday = 0
 
-
-'''
-Clock In
-    Log clock in time (database?)
-Clock Out
-    Pull clock in time, flag if it doesn't exist (how?)
-    Log clock out time (database?)
-Calculate total time (hours and minutes)
-    Check if total weekly time >40 hours
-        If so, start adding hours/minutes to OT
-        If hours >=40 and minutes >0, move hours to OT
-            Start populating only OT
-Log total time in hours, minutes (in database?)
-
-Log in to time and expense
-Select current time sheet
-    based on date of week end (week starts on Sunday, ends on Saturday)
-Log time in hours and minutes
-Click save
-
-If end of week
-    submit timesheet
-'''
+    for i in range(0, 4, 1):
+        weekday = calendar.day_name[i].lower()
+        os.remove(f'{weekday}.txt')
 
 
-def logTime(clockIn, todayHours, todayMinutes):
-    browser = startBrowser()
-    browser = logIn(browser)
-
-    weekEndingDate = getEndOfPayWeek(clockIn)
-
-    browser = selectTimeCard(browser, weekEndingDate)
-
-    regHours, regMins, OTHours, OTMins = allocateTime(browser, todayHours, todayMinutes)
-    print(f"Reg: {regHours}:{regMins}, OT: {OTHours}:{OTMins}")
-
-    assignHours(browser, clockIn.weekday(), regHours, regMins, OTHours, OTMins)
-
-    browser = saveData(browser)
-
-    # If it's Friday, submit timesheet
-    if calendar.day_name[clockIn.weekday()] == "Friday":
-        browser = submitTimecard(browser)
-
-    browser.close()
-
-
-def writeToFile(msg):
+def writeToFile(filename, msg):
     with open(filename, 'a+') as f:
         f.write(msg)
         f.write('\n')
 
 
-def getLastLine():
+def getFileName(day_int):
+    return f'{calendar.day_name[day_int].lower()}.txt'
+
+
+def getLastLine(filename):
     with open(filename, 'r') as f:
         lastLine = f.readlines()[-1].strip()
 
     return lastLine
 
 
-def existClockIn(lastLine):
-    if lastLine.find('Clock In: ') != -1:
+def existClockIn():
+    try:
+        weekday = datetime.now().weekday()
+        # weekday = datetime(2019, 12, 6, 7, 30).weekday()
+        with open(f'{getFileName(weekday)}', 'r') as f:
+            f.readlines()[0]
         return True
-    else:
+    except:
         return False
 
 
-def getClockInTime(lastLine):
-    clockTime = lastLine.replace('Clock In: ', '').split(':')
-    #year = datetime.now().year
-    year = 2019
-    # month = datetime.now().month
-    month = 11
-    #day = datetime.now().day
-    day = 25
+def clockIn():
+    # clock.timeIn = datetime(2019, 12, 6, 7, 30)
+    clock.timeIn = datetime.now()
+
+    clock.currentWeekday = calendar.day_name[clock.timeIn.weekday()]
+    clock.currentDate = f'{clock.timeIn.month}/{clock.timeIn.day}/{clock.timeIn.year}'
+    writeToFile(files.timesheet, f'{clock.currentWeekday} {clock.currentDate}')
+
+    clockString = f'Clock In: {clock.timeIn.hour}:{clock.timeIn.minute}'
+    writeToFile(files.timesheet, clockString)
+    writeToFile(getFileName(clock.timeIn.weekday()), clockString)
+
+    return clockString
+
+
+def getClockInTime():
+    weekday = datetime.now().weekday()
+    # weekday = datetime(2019, 12, 6, 7, 30).weekday()
+    clockTime = getLastLine(getFileName(weekday)).replace('Clock In: ', '').split(':')
+    year = datetime.now().year
+    # year = 2019
+    month = datetime.now().month
+    # month = 12
+    day = datetime.now().day
+    # day = 2
     hour = int(clockTime[0])
     minute = int(clockTime[1])
     clock.timeIn = datetime(year, month, day, hour, minute)
@@ -210,27 +158,32 @@ def getClockInTime(lastLine):
 
 
 def clockOut():
-    clock.timeOut = datetime(2019, 11, 25, 16, 15)
+    clock.timeOut = datetime.now()
+    # clock.timeOut = datetime(2019, 12, 6, 16, 15)
     clockString = f'Clock Out: {clock.timeOut.hour}:{clock.timeOut.minute}'
-    writeToFile(clockString)
+    writeToFile(files.timesheet, clockString)
+    writeToFile(getFileName(clock.timeOut.weekday()), clockString)
     
     (totalMinutes, workHours, workMinutes) = parseWorkTime()
-    clock.setDayMinutes(clock.currentWeekday.lower(), totalMinutes)
-    weekTotal = clock.getWeekTotal()
-    writeToFile(f'Total Week Time: {int(weekTotal/60)}:{int(weekTotal%60)}')
-    writeToFile('\n')
+    writeToFile(files.timesheet, f'Total: {int(totalMinutes/60)}:{int(totalMinutes%60)}')
+    writeToFile(getFileName(clock.timeOut.weekday()), f'Total: {totalMinutes}')
+
+    #clock.setDayMinutes(clock.currentWeekday.lower(), totalMinutes)
+    weekTotal = getTotalWeekTime(clock.timeOut.weekday())
+    writeToFile(files.timesheet, f'Total Week Time: {int(weekTotal/60)}:{int(weekTotal%60)}\n')
+
+    if clock.timeOut.weekday() == 4:
+        resetWeek()
+
+    resetTime()
 
     return clockString
 
 
 def processClock(msg):
     if msg == 'in':
-        if clock.timeIn is None:
-            clock.timeIn = datetime(2019, 11, 25, 7, 30)
-            clock.currentWeekday = calendar.day_name[clock.timeIn.weekday()]
-            writeToFile(f'{clock.currentWeekday} {clock.timeIn.month}/{clock.timeIn.day}/{clock.timeIn.year}')
-            clockString = f'Clock In: {clock.timeIn.hour}:{clock.timeIn.minute}'
-            writeToFile(clockString)
+        if not existClockIn():
+            clockString = clockIn()
         else:
             clockString = 'You are already clocked in!'
     
@@ -238,8 +191,8 @@ def processClock(msg):
         if (clock.timeIn is not None) and (clock.timeOut is None):
             clockString = clockOut()
 
-        elif existClockIn(getLastLine()):
-            getClockInTime(getLastLine())
+        elif existClockIn():
+            getClockInTime()
             clockString = clockOut()
             
         else:
